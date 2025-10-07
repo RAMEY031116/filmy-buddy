@@ -7,7 +7,7 @@ from datetime import datetime
 
 st.set_page_config(page_title="FilmyBuddy 🎬", layout="wide")
 st.title("FilmyBuddy 🎬")
-st.markdown("Track your movies/shows with posters and TMDb recommendations!")
+st.markdown("Track your movies/shows with posters and TMDb information!")
 
 # -------------------
 # TMDb API key
@@ -57,6 +57,7 @@ with st.form("add_movie"):
         if user and movie:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             try:
+                # Append to Google Sheet
                 sheet.append_row([user, movie, type_, note, year, language, timestamp])
                 st.success(f"Added {movie} by {user}!")
 
@@ -91,10 +92,9 @@ def fetch_tmdb_data(title, year=None, language=None, api_key=None):
     return None, None, None
 
 # -------------------
-# Display movies/shows
+# Display movies/shows from sheet with TMDb data
 # -------------------
 st.subheader("Your Movies/Shows")
-
 search = st.text_input("Search by title or user:")
 if search:
     df_filtered = df[df['movie'].str.contains(search, case=False, na=False) |
@@ -102,59 +102,46 @@ if search:
 else:
     df_filtered = df
 
-for _, row in df_filtered.iterrows():
+cols = st.columns(3)  # 3 columns layout
+for i, (_, row) in enumerate(df_filtered.iterrows()):
     poster, tmdb_year, tmdb_lang = fetch_tmdb_data(row['movie'], row['year'], row['language'], tmdb_api_key)
-    
-    if poster:
-        st.image(poster, width=150)
-    
-    st.markdown(f"### {row['movie']}")
-    details = f"Type: {row['type']}"
-    if row['year']:
-        details += f" | Year: {row['year']}"
-    elif tmdb_year:
-        details += f" | Year: {tmdb_year}"
-    if row['language']:
-        details += f" | Language: {row['language'].upper()}"
-    elif tmdb_lang:
-        details += f" | Language: {tmdb_lang}"
-    details += f" | Added by: {row['user']}"
-    st.markdown(details)
-    if row['note']:
-        st.markdown(f"Notes: {row['note']}")
-    st.markdown("---")
+    with cols[i % 3]:
+        if poster:
+            st.image(poster, width=150)
+        st.markdown(f"**{row['movie']} ({tmdb_year or row['year']}) [{tmdb_lang or row['language'].upper()}]**")
+        st.markdown(f"Type: {row['type']}")
+        st.markdown(f"Added by: {row['user']}")
+        if row['note']:
+            st.markdown(f"Notes: {row['note']}")
 
 # -------------------
-# TMDb Recommendations
+# TMDb Recommendations for last movie
 # -------------------
 if tmdb_api_key and not df.empty:
     st.subheader("TMDb Recommendations 🎬")
     last_movie = df.iloc[-1]['movie']
     last_year = df.iloc[-1]['year']
     last_lang = df.iloc[-1]['language']
-    
+
     search_url = "https://api.themoviedb.org/3/search/movie"
     params = {"api_key": tmdb_api_key, "query": last_movie}
     if last_year:
         params["year"] = last_year
     resp = requests.get(search_url, params=params).json()
-    
+
     if resp.get("results"):
         movie_id = resp["results"][0]["id"]
         rec_url = f"https://api.themoviedb.org/3/movie/{movie_id}/recommendations"
         rec_resp = requests.get(rec_url, params={"api_key": tmdb_api_key}).json()
-        recs = rec_resp.get("results", [])[:6]  # show more recommendations
-        
-        for r in recs:
+        recs = rec_resp.get("results", [])[:6]
+
+        rec_cols = st.columns(3)
+        for j, r in enumerate(recs):
             poster = f"https://image.tmdb.org/t/p/w200{r['poster_path']}" if r.get('poster_path') else None
             title = r['title']
             year = r.get('release_date','')[:4]
             lang = r.get('original_language','').upper()
-            
-            if poster:
-                st.image(poster, width=120)
-            st.markdown(f"### {title}")
-            st.markdown(f"Year: {year} | Language: {lang}")
-            st.markdown("---")
-    else:
-        st.info("No TMDb recommendations found for the last movie.")
+            with rec_cols[j % 3]:
+                if poster:
+                    st.image(poster, width=150)
+                st.markdown(f"**{title} ({year}) [{lang}]**")
