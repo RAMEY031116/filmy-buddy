@@ -5,16 +5,19 @@ import pandas as pd
 import requests
 from datetime import datetime
 
+# -------------------
+# Page config
+# -------------------
 st.set_page_config(page_title="FilmyBuddy 🎬", layout="wide")
 st.title("FilmyBuddy 🎬")
-st.markdown("Track your movies/shows with posters and TMDb information!")
+st.markdown("Track your movies/shows with TMDb posters and info!")
 
 # -------------------
 # TMDb API key
 # -------------------
 tmdb_api_key = st.secrets.get("tmdb_api_key", None)
 if not tmdb_api_key:
-    st.warning("TMDb API key not found in secrets. Only titles will be shown without TMDb data.")
+    st.warning("TMDb API key not found in secrets. Posters and TMDb info will not work.")
 
 # -------------------
 # Connect to Google Sheet
@@ -57,7 +60,6 @@ with st.form("add_movie"):
         if user and movie:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             try:
-                # Append to Google Sheet
                 sheet.append_row([user, movie, type_, note, year, language, timestamp])
                 st.success(f"Added {movie} by {user}!")
 
@@ -102,17 +104,20 @@ if search:
 else:
     df_filtered = df
 
-cols = st.columns(3)  # 3 columns layout
-for i, (_, row) in enumerate(df_filtered.iterrows()):
-    poster, tmdb_year, tmdb_lang = fetch_tmdb_data(row['movie'], row['year'], row['language'], tmdb_api_key)
-    with cols[i % 3]:
-        if poster:
-            st.image(poster, width=150)
-        st.markdown(f"**{row['movie']} ({tmdb_year or row['year']}) [{tmdb_lang or row['language'].upper()}]**")
-        st.markdown(f"Type: {row['type']}")
-        st.markdown(f"Added by: {row['user']}")
-        if row['note']:
-            st.markdown(f"Notes: {row['note']}")
+if df_filtered.empty:
+    st.info("No movies found.")
+else:
+    cols = st.columns(3)  # 3 columns layout
+    for i, (_, row) in enumerate(df_filtered.iterrows()):
+        poster, tmdb_year, tmdb_lang = fetch_tmdb_data(row['movie'], row['year'], row['language'], tmdb_api_key)
+        with cols[i % 3]:
+            if poster:
+                st.image(poster, width=150)
+            st.markdown(f"**{row['movie']} ({tmdb_year or row['year']}) [{tmdb_lang or row['language'].upper()}]**")
+            st.markdown(f"Type: {row['type']}")
+            st.markdown(f"Added by: {row['user']}")
+            if row['note']:
+                st.markdown(f"Notes: {row['note']}")
 
 # -------------------
 # TMDb Recommendations for last movie
