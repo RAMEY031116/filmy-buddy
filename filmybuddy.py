@@ -13,8 +13,8 @@ if 'tmdb_data_cache_cleared' not in st.session_state:
     st.session_state['tmdb_data_cache_cleared'] = True
 
 # --- Configuration ---
-st.set_page_config(page_title="FilmyBuddy Robust Edition 🛡️", layout="wide")
-st.title("FilmyBuddy Robust Edition 🛡️")
+st.set_page_config(page_title="FilmyBuddy🛡️", layout="wide")
+st.title("FilmyBuddy  🛡️")
 st.markdown("Track your media, get accurate TMDb posters/ratings, and recommendations!")
 
 # TMDb API key from secrets
