@@ -1,4 +1,4 @@
-# filmybuddy_final_working_v3.py
+# filmybuddy_final_working_v4.py
 import streamlit as st
 import gspread
 import pandas as pd
@@ -8,14 +8,13 @@ import numpy as np
 import re # Import regex for advanced cleaning
 
 # --- IMPORTANT: Clear TMDb Cache at Start ---
-# Ensures a clean slate on initial load to prevent persistent errors
 if 'tmdb_data_cache_cleared' not in st.session_state:
     st.cache_data.clear()
     st.session_state['tmdb_data_cache_cleared'] = True
 
 # --- Configuration ---
-st.set_page_config(page_title="FilmyBuddy Robust Edition 🛡️", layout="wide")
-st.title("FilmyBuddy Robust Edition 🛡️")
+st.set_page_config(page_title="FilmyBuddy  🛡️", layout="wide")
+st.title("FilmyBuddy  🛡️")
 st.markdown("Track your media, get accurate TMDb posters/ratings, and recommendations!")
 
 # TMDb API key from secrets
@@ -126,6 +125,7 @@ def get_tmdb_data(title, media_type, year=None, language=None):
             continue
             
         # 3. Strict Original Language Matching (CRUCIAL for same-name foreign films)
+        # TMDb's original_language uses a 2-letter code (e.g., 'ko')
         if language_code:
             r_lang_upper = r.get("original_language", "").upper()
             if r_lang_upper != language_code:
@@ -234,7 +234,7 @@ with st.form("add_movie"):
                 st.success(f"Added **{movie.strip()}** by {user.strip()}! Refreshing list...")
                 load_data.clear()
                 get_tmdb_data.clear() 
-                # FIX: Use st.rerun() instead of st.experimental_rerun()
+                # FIX: Use st.rerun() to force reload
                 st.rerun()
             except Exception as e:
                 st.error(f"Error adding movie to sheet: {e}")
@@ -333,3 +333,10 @@ if tmdb_api_key and not df.empty:
             st.info(f"No TMDb recommendations found for **{last_movie['movie']}**.")
     else:
         st.info(f"Could not find **{last_movie['movie']}** on TMDb. Recommendations unavailable.")
+
+# -------------------
+# Data Verification (FOR DEBUGGING)
+# -------------------
+with st.expander("🔍 Debug: View Raw Data for Troubleshooting"):
+    st.markdown("If you are getting the wrong poster, check the `year` and `language` columns here to ensure they match your Google Sheet entry.")
+    st.dataframe(df.head())
