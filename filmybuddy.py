@@ -10,7 +10,7 @@ from datetime import datetime
 # -------------------
 st.set_page_config(page_title="FilmyBuddy 🎬", layout="wide")
 st.title("FilmyBuddy 🎬")
-st.markdown("Track your movies/shows with TMDb posters and info!")
+st.markdown("Track your movies/shows and get TMDb recommendations with posters!")
 
 # -------------------
 # TMDb API key
@@ -51,7 +51,7 @@ with st.form("add_movie"):
     user = st.text_input("Your Name")
     movie = st.text_input("Movie/Show Title")
     type_ = st.selectbox("Type", ["Movie", "Show", "Documentary", "Anime", "Other"])
-    year = st.text_input("Year (optional, e.g. 2023)")
+    year = st.text_input("Year (optional)")
     language = st.text_input("Language (optional, e.g. EN, KO)")
     note = st.text_area("Notes / Thoughts")
     submitted = st.form_submit_button("Add")
@@ -94,7 +94,7 @@ def fetch_tmdb_data(title, year=None, language=None, api_key=None):
     return None, None, None
 
 # -------------------
-# Display movies/shows from sheet with TMDb data
+# Display movies/shows from sheet with posters
 # -------------------
 st.subheader("Your Movies/Shows")
 search = st.text_input("Search by title or user:")
@@ -107,7 +107,7 @@ else:
 if df_filtered.empty:
     st.info("No movies found.")
 else:
-    cols = st.columns(3)  # 3 columns layout
+    cols = st.columns(3)  # 3 columns per row
     for i, (_, row) in enumerate(df_filtered.iterrows()):
         poster, tmdb_year, tmdb_lang = fetch_tmdb_data(row['movie'], row['year'], row['language'], tmdb_api_key)
         with cols[i % 3]:
