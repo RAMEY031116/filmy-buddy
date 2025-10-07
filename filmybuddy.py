@@ -1,62 +1,93 @@
+# filmybuddy.py
 import streamlit as st
 import gspread
-from google.oauth2.service_account import Credentials
-import requests
+import pandas as pd
 import random
-from datetime import datetime
 
-st.set_page_config(page_title="🎬 FilmyBuddy", page_icon="🍿")
-st.title("🎬 FilmyBuddy")
-st.write("Welcome! Track movies and share recommendations with friends.")
+st.title("FilmyBuddy 🎬")
+st.markdown("Track your movies/shows and get simple recommendations!")
 
-# -----------------------------
-# Google Sheets setup
-# -----------------------------
-scope = ["https://spreadsheets.google.com/feeds",
-         "https://www.googleapis.com/auth/drive"]
+# -------------------
+# Connect to Google Sheet
+# -------------------
+try:
+    sheet = gspread.service_account_from_dict(st.secrets["gcp_service_account"]) \
+                      .open_by_key(st.secrets["sheet_id"]) \
+                      .worksheet("Sheet1")  # Replace with your worksheet name
+except KeyError:
+    st.error("Missing 'gcp_service_account' or 'sheet_id' in Streamlit secrets.toml")
+    st.stop()
+except Exception as e:
+    st.error(f"Error connecting to Google Sheet: {e}")
+    st.stop()
 
-creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
-client = gspread.authorize(creds)
+# -------------------
+# Load data from Google Sheet
+# -------------------
+try:
+    data = sheet.get_all_records()
+    df = pd.DataFrame(data)
+except Exception as e:
+    st.error(f"Error loading Google Sheet: {e}")
+    df = pd.DataFrame(columns=["user", "movie", "type", "note", "timestamp"])
 
-sheet = client.open("FilmyBuddy_Data").sheet1  # your sheet name
-data = sheet.get_all_records()
+# -------------------
+# Form to add a new movie/show
+# -------------------
+st.subheader("Add a new movie/show")
+with st.form("add_movie"):
+    user = st.text_input("Your Name")
+    movie = st.text_input("Movie/Show Title")
+    type_ = st.selectbox("Type", ["Movie", "Show", "Documentary", "Anime", "Other"])
+    note = st.text_area("Notes / Thoughts")
+    submitted = st.form_submit_button("Add")
 
-# -----------------------------
-# Users
-# -----------------------------
-users = list(set([d["user"] for d in data]))
-selected_user = st.selectbox("Select your user:", users)
+    if submitted:
+        if user and movie:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                sheet.append_row([user, movie, type_, note, timestamp])
+                st.success(f"Added {movie} by {user}!")
+                
+                # Refresh dataframe
+                data = sheet.get_all_records()
+                df = pd.DataFrame(data)
+            except Exception as e:
+                st.error(f"Error adding movie: {e}")
+        else:
+            st.warning("Please fill at least your name and the movie title.")
 
-st.subheader(f"{selected_user}'s Movie List")
-
-# Filter user-specific movies
-user_movies = [d for d in data if d["user"] == selected_user]
-
-for m in user_movies:
-    st.write(f"- **{m['movie']}** ({m['type']}) — {m['note']}")
-
-# -----------------------------
-# Add a new movie
-# -----------------------------
-st.subheader("Add a new movie")
-new_movie = st.text_input("Movie Title")
-movie_type = st.selectbox("Type", ["recommendation", "wishlist", "watched"])
-note = st.text_input("Note (optional)")
-
-if st.button("Add Movie"):
-    if new_movie.strip() != "":
-        sheet.append_row([selected_user, new_movie, movie_type, note, str(datetime.now())])
-        st.success(f"Added **{new_movie}** to {selected_user}'s list!")
+# -------------------
+# Display current movies/shows
+# -------------------
+if not df.empty:
+    st.subheader("Your Movies/Shows")
+    
+    search = st.text_input("Search by title:")
+    if search:
+        df_filtered = df[df['movie'].str.contains(search, case=False, na=False)]
+        st.dataframe(df_filtered)
     else:
-        st.error("Please enter a movie title.")
+        st.dataframe(df)
 
-# -----------------------------
-# Random Movie Suggestion from TMDB
-# -----------------------------
-st.subheader("🎲 Random Movie Suggestion")
-TMDB_API_KEY = "YOUR_TMDB_API_KEY"  # get it from https://www.themoviedb.org/settings/api
-url = f"https://api.themoviedb.org/3/movie/popular?api_key={TMDB_API_KEY}"
-res = requests.get(url).json()
-movies = [m["title"] for m in res["results"]]
-st.info(random.choice(movies))
-st.write("wtf")
+    # -------------------
+    # Recommendations
+    # -------------------
+    st.subheader("Recommendations 🎯")
+    if len(df) > 1:
+        # Recommend movies of the same type as last added movie
+        last_type = df.iloc[-1]['type']
+        same_type_movies = df[df['type'] == last_type]['movie'].tolist()
+        all_movies = df['movie'].tolist()
+        recommendations = random.sample([m for m in all_movies if m not in same_type_movies], 
+                                        min(3, len(all_movies)-len(same_type_movies)))
+        if recommendations:
+            for rec in recommendations:
+                st.write(f"• {rec}")
+        else:
+            st.info("No new recommendations available yet.")
+    else:
+        st.info("Add more movies to get recommendations.")
+else:
+    st.info("No data found in the Google Sheet. Check your sheet ID and worksheet name.")
