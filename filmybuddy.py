@@ -7,7 +7,7 @@ from datetime import datetime
 
 st.set_page_config(page_title="FilmyBuddy 🎬", layout="wide")
 st.title("FilmyBuddy 🎬")
-st.markdown("Track your movies/shows and get recommendations with posters!")
+st.markdown("Track your movies/shows with posters and TMDb recommendations!")
 
 # -------------------
 # TMDb API key
@@ -34,11 +34,11 @@ except Exception as e:
 # Load data from Google Sheet
 # -------------------
 try:
-    data = sheet.get_all_records(expected_headers=["user","movie","type","note","timestamp"])
+    data = sheet.get_all_records(expected_headers=["user","movie","type","note","year","language","timestamp"])
     df = pd.DataFrame(data)
 except Exception as e:
     st.error(f"Error loading Google Sheet: {e}")
-    df = pd.DataFrame(columns=["user", "movie", "type", "note", "timestamp"])
+    df = pd.DataFrame(columns=["user", "movie", "type", "note", "year", "language", "timestamp"])
 
 # -------------------
 # Form to add a new movie/show
@@ -48,6 +48,8 @@ with st.form("add_movie"):
     user = st.text_input("Your Name")
     movie = st.text_input("Movie/Show Title")
     type_ = st.selectbox("Type", ["Movie", "Show", "Documentary", "Anime", "Other"])
+    year = st.text_input("Year (optional, e.g. 2023)")
+    language = st.text_input("Language (optional, e.g. EN, KO)")
     note = st.text_area("Notes / Thoughts")
     submitted = st.form_submit_button("Add")
 
@@ -55,11 +57,11 @@ with st.form("add_movie"):
         if user and movie:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             try:
-                sheet.append_row([user, movie, type_, note, timestamp])
+                sheet.append_row([user, movie, type_, note, year, language, timestamp])
                 st.success(f"Added {movie} by {user}!")
 
                 # Refresh dataframe
-                data = sheet.get_all_records(expected_headers=["user","movie","type","note","timestamp"])
+                data = sheet.get_all_records(expected_headers=["user","movie","type","note","year","language","timestamp"])
                 df = pd.DataFrame(data)
             except Exception as e:
                 st.error(f"Error adding movie: {e}")
@@ -69,16 +71,23 @@ with st.form("add_movie"):
 # -------------------
 # Helper: Fetch TMDb movie details
 # -------------------
-def fetch_tmdb_data(title, api_key):
+def fetch_tmdb_data(title, year=None, language=None, api_key=None):
+    if not api_key:
+        return None, None, None
     search_url = "https://api.themoviedb.org/3/search/movie"
     params = {"api_key": api_key, "query": title}
+    if year:
+        params["year"] = year
     resp = requests.get(search_url, params=params).json()
-    if resp.get("results"):
-        movie = resp["results"][0]
+    results = resp.get("results", [])
+    if language:
+        results = [m for m in results if m.get('original_language','').upper() == language.upper()]
+    if results:
+        movie = results[0]
         poster_url = f"https://image.tmdb.org/t/p/w200{movie['poster_path']}" if movie.get('poster_path') else None
         release_year = movie.get('release_date','')[:4]
-        language = movie.get('original_language','').upper()
-        return poster_url, release_year, language
+        lang = movie.get('original_language','').upper()
+        return poster_url, release_year, lang
     return None, None, None
 
 # -------------------
@@ -94,21 +103,25 @@ else:
     df_filtered = df
 
 for _, row in df_filtered.iterrows():
-    poster, year, language = fetch_tmdb_data(row['movie'], tmdb_api_key) if tmdb_api_key else (None, None, None)
+    poster, tmdb_year, tmdb_lang = fetch_tmdb_data(row['movie'], row['year'], row['language'], tmdb_api_key)
     
     if poster:
         st.image(poster, width=150)
     
-    info = f"**{row['movie']}** ({row['type']})"
-    if year:
-        info += f" - {year}"
-    if language:
-        info += f" [{language}]"
-    info += f"\nAdded by: {row['user']}"
+    st.markdown(f"### {row['movie']}")
+    details = f"Type: {row['type']}"
+    if row['year']:
+        details += f" | Year: {row['year']}"
+    elif tmdb_year:
+        details += f" | Year: {tmdb_year}"
+    if row['language']:
+        details += f" | Language: {row['language'].upper()}"
+    elif tmdb_lang:
+        details += f" | Language: {tmdb_lang}"
+    details += f" | Added by: {row['user']}"
+    st.markdown(details)
     if row['note']:
-        info += f"\nNotes: {row['note']}"
-    
-    st.markdown(info)
+        st.markdown(f"Notes: {row['note']}")
     st.markdown("---")
 
 # -------------------
@@ -117,8 +130,13 @@ for _, row in df_filtered.iterrows():
 if tmdb_api_key and not df.empty:
     st.subheader("TMDb Recommendations 🎬")
     last_movie = df.iloc[-1]['movie']
+    last_year = df.iloc[-1]['year']
+    last_lang = df.iloc[-1]['language']
+    
     search_url = "https://api.themoviedb.org/3/search/movie"
     params = {"api_key": tmdb_api_key, "query": last_movie}
+    if last_year:
+        params["year"] = last_year
     resp = requests.get(search_url, params=params).json()
     
     if resp.get("results"):
@@ -131,16 +149,12 @@ if tmdb_api_key and not df.empty:
             poster = f"https://image.tmdb.org/t/p/w200{r['poster_path']}" if r.get('poster_path') else None
             title = r['title']
             year = r.get('release_date','')[:4]
-            language = r.get('original_language','').upper()
+            lang = r.get('original_language','').upper()
             
             if poster:
                 st.image(poster, width=120)
-            info = f"**{title}**"
-            if year:
-                info += f" - {year}"
-            if language:
-                info += f" [{language}]"
-            st.markdown(info)
+            st.markdown(f"### {title}")
+            st.markdown(f"Year: {year} | Language: {lang}")
             st.markdown("---")
     else:
         st.info("No TMDb recommendations found for the last movie.")
