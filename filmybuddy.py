@@ -10,7 +10,7 @@ from datetime import datetime
 # -------------------
 st.set_page_config(page_title="FilmyBuddy 🎬", layout="wide")
 st.title("FilmyBuddy 🎬")
-st.markdown("Track your movies/shows and get TMDb recommendations with posters!")
+st.markdown("Track your movies/shows and get TMDb posters & recommendations!")
 
 # -------------------
 # TMDb API key
@@ -107,7 +107,7 @@ else:
 if df_filtered.empty:
     st.info("No movies found.")
 else:
-    cols = st.columns(3)  # 3 columns per row
+    cols = st.columns(3)
     for i, (_, row) in enumerate(df_filtered.iterrows()):
         poster, tmdb_year, tmdb_lang = fetch_tmdb_data(row['movie'], row['year'], row['language'], tmdb_api_key)
         with cols[i % 3]:
