@@ -1,4 +1,4 @@
-# filmybuddy_final_working_v4.py
+# filmybuddy_final.py
 import streamlit as st
 import gspread
 import pandas as pd
@@ -13,8 +13,9 @@ if 'tmdb_data_cache_cleared' not in st.session_state:
     st.session_state['tmdb_data_cache_cleared'] = True
 
 # --- Configuration ---
-st.set_page_config(page_title="FilmyBuddy🛡️", layout="wide")
-st.title("FilmyBuddy  🛡️")
+# Removed "Robust Edition 🛡️" as requested
+st.set_page_config(page_title="FilmyBuddy 🎬", layout="wide")
+st.title("FilmyBuddy 🎬")
 st.markdown("Track your media, get accurate TMDb posters/ratings, and recommendations!")
 
 # TMDb API key from secrets
@@ -84,11 +85,10 @@ def get_tmdb_data(title, media_type, year=None, language=None):
     
     params = {"api_key": tmdb_api_key, "query": title}
     
-    # Apply year parameter only if it is a valid 4-digit number
+    # Optional parameters for the API call to guide the search
     if year and len(year) == 4 and year.isdigit():
         params['year'] = year
         
-    # Apply primary language parameter for better results
     if language_code and len(language_code) in [2, 3]: # e.g., KO, EN
         params['language'] = language_code.lower()
 
@@ -99,7 +99,7 @@ def get_tmdb_data(title, media_type, year=None, language=None):
         
     results = resp.get("results", [])
     
-    # --- Strict Matching Filter (Primary Logic) ---
+    # --- Strict Matching Filter (The code that forces the right poster) ---
     for r in results:
         
         is_movie = r.get("media_type") == "movie"
@@ -120,12 +120,11 @@ def get_tmdb_data(title, media_type, year=None, language=None):
         if media_type in ["Show", "Anime"] and not is_tv:
             continue
             
-        # 2. Strict Year Matching (If user provided a clean year)
+        # 2. Strict Year Matching
         if year and r_year != year:
             continue
             
-        # 3. Strict Original Language Matching (CRUCIAL for same-name foreign films)
-        # TMDb's original_language uses a 2-letter code (e.g., 'ko')
+        # 3. Strict Original Language Matching (The key differentiator)
         if language_code:
             r_lang_upper = r.get("original_language", "").upper()
             if r_lang_upper != language_code:
@@ -135,14 +134,14 @@ def get_tmdb_data(title, media_type, year=None, language=None):
         if not r.get("poster_path"):
             continue
 
-        # Found a perfect match! Normalize fields and return
+        # Found a perfect match! 
         r['normalized_title'] = r_title
         r['normalized_year'] = r_year
         r['normalized_type'] = r['media_type']
         
         return r
         
-    # Fallback: If strict match fails, return the first result with a poster
+    # Fallback: If a perfect match fails, return the best result TMDb offered, but only if it has a poster
     if results and results[0].get("poster_path"):
          r = results[0]
          r['normalized_title'] = r.get("title") or r.get("name")
@@ -175,7 +174,6 @@ def clear_caches():
     load_data.clear()
     get_tmdb_data.clear()
     st.session_state.pop('tmdb_data_cache_cleared', None)
-    # FIX: Use st.rerun() instead of st.experimental_rerun()
     st.rerun() 
 
 # --- Layout for Cache Control ---
@@ -219,14 +217,14 @@ with st.form("add_movie"):
         else:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             try:
-                # CORRECTED ORDER for append_row: user, movie, type, status, year, language, note, timestamp
+                # ORDER: user, movie, type, status, year, language, note, timestamp
                 row_data = [
                     user.strip(), 
                     movie.strip(), 
                     type_, 
                     status,
-                    clean_year, # Use the cleaned year
-                    language.strip().upper(), # Store as uppercase 2-letter code (e.g., KO)
+                    clean_year, 
+                    language.strip().upper(), 
                     note.strip(), 
                     timestamp
                 ]
@@ -234,7 +232,6 @@ with st.form("add_movie"):
                 st.success(f"Added **{movie.strip()}** by {user.strip()}! Refreshing list...")
                 load_data.clear()
                 get_tmdb_data.clear() 
-                # FIX: Use st.rerun() to force reload
                 st.rerun()
             except Exception as e:
                 st.error(f"Error adding movie to sheet: {e}")
@@ -279,15 +276,19 @@ else:
                 
                 rating = tmdb_data.get("vote_average")
                 if rating and rating > 0:
+                    # Use TMDb's title and year if a match was found for better display quality
+                    display_title = tmdb_data.get('normalized_title', row['movie'])
+                    display_year = tmdb_data.get('normalized_year', row.get('year') or 'N/A')
                     rating_text = f"⭐ {rating:.1f}/10"
                     
-            elif tmdb_api_key and tmdb_data:
-                st.info(f"TMDb found **{row['movie']}** (ID: {tmdb_data.get('id')}), but poster is missing.")
-            elif tmdb_api_key:
-                 st.warning(f"TMDb search failed for: **{row['movie']}** (Year: {row.get('year') or 'N/A'}, Lang: {row.get('language') or 'N/A'}).")
+            else:
+                display_title = row['movie']
+                display_year = row.get('year') or 'N/A'
+                if tmdb_api_key:
+                     st.warning(f"TMDb search failed for: **{row['movie']}** (Year: {row.get('year') or 'N/A'}, Lang: {row.get('language') or 'N/A'}).")
             
             # Display Details
-            st.markdown(f"**{row['movie']}** ({row.get('year') or 'N/A'})")
+            st.markdown(f"**{display_title}** ({display_year})")
             st.markdown(f"**Type:** {row['type']} | **Status:** `{row.get('status', 'N/A')}`")
             st.markdown(f"**Rating:** {rating_text}")
             st.markdown(f"**Added by:** {row['user']}")
@@ -338,5 +339,5 @@ if tmdb_api_key and not df.empty:
 # Data Verification (FOR DEBUGGING)
 # -------------------
 with st.expander("🔍 Debug: View Raw Data for Troubleshooting"):
-    st.markdown("If you are getting the wrong poster, check the `year` and `language` columns here to ensure they match your Google Sheet entry.")
-    st.dataframe(df.head())
+    st.markdown("**CRITICAL CHECK:** Ensure the `year` and `language` (e.g., `2003` and `KO` for Memories of Murder) columns for your problematic entries are correct here. This is the data the script is using.")
+    st.dataframe(df.head(10))
