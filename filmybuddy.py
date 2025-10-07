@@ -1,4 +1,4 @@
-# filmybuddy_fixed_poster_display.py
+# filmybuddy_final_fix.py
 import streamlit as st
 import gspread
 import pandas as pd
@@ -42,29 +42,41 @@ def get_tmdb_movie(title, year=None, language=None):
     """Searches TMDb for a movie/show and returns the first result."""
     if not tmdb_api_key:
         return None
+        
     params = {"api_key": tmdb_api_key, "query": title}
     
-    # --- FIX APPLIED HERE: Reverting parameter back to "year" ---
-    if year:
-        params["year"] = year 
+    # Ensuring the year parameter is passed correctly
+    if year and str(year).strip().isdigit():
+        params["year"] = str(year).strip() 
     
-    resp = requests.get("https://api.themoviedb.org/3/search/movie", params=params).json()
+    try:
+        resp = requests.get("https://api.themoviedb.org/3/search/movie", params=params).json()
+    except requests.RequestException as e:
+        st.error(f"TMDb API request failed: {e}")
+        return None
+        
     results = resp.get("results", [])
     
-    # Optional: Filter by original language if specified
+    # Filter by original language if specified
     if language:
-        results = [r for r in results if r.get("original_language","").upper() == language.upper()]
+        lang_upper = language.upper().strip()
+        results = [r for r in results if r.get("original_language", "").upper() == lang_upper]
         
     if results:
         return results[0]  # Return first matching movie
+        
     return None
 
-def get_tmdb_recommendations(movie_id, count=3):
+def get_tmdb_recommendations(movie_id, count=6): # Increased default count for display
     """Fetches recommendations from TMDb for a given movie ID."""
     if not tmdb_api_key or not movie_id:
         return []
     url = f"https://api.themoviedb.org/3/movie/{movie_id}/recommendations"
-    resp = requests.get(url, params={"api_key": tmdb_api_key}).json()
+    try:
+        resp = requests.get(url, params={"api_key": tmdb_api_key}).json()
+    except requests.RequestException:
+        return []
+        
     return resp.get("results", [])[:count]
 
 # -------------------
@@ -86,27 +98,30 @@ with st.form("add_movie"):
             try:
                 sheet.append_row([user, movie, type_, note, year, language, timestamp])
                 st.success(f"Added {movie} by {user}! Refreshing list...")
+                # Rerun to load the new data and display the poster/recommendations
                 st.experimental_rerun()
             except Exception as e:
-                st.error(f"Error adding movie: {e}")
+                st.error(f"Error adding movie to sheet: {e}")
         else:
             st.warning("Please fill your name and movie title.")
 
 # -------------------
-# Display all entered movies (Simple Display)
+# Display all entered movies
 # -------------------
 st.subheader("Your Movies/Shows")
 search = st.text_input("Search by title or user:")
 
-# Sort data for consistent display (latest first)
+# Sort data by timestamp descending (latest first)
 if not df.empty and "timestamp" in df.columns:
-    df = df.sort_values(by="timestamp", ascending=False).reset_index(drop=True)
+    df_sorted = df.sort_values(by="timestamp", ascending=False).reset_index(drop=True)
+else:
+    df_sorted = df
 
 if search:
-    df_display = df[df["movie"].str.contains(search, case=False, na=False) |
-                    df["user"].str.contains(search, case=False, na=False)]
+    df_display = df_sorted[df_sorted["movie"].str.contains(search, case=False, na=False) |
+                          df_sorted["user"].str.contains(search, case=False, na=False)]
 else:
-    df_display = df
+    df_display = df_sorted
 
 if df_display.empty:
     st.info("No movies found.")
@@ -124,15 +139,14 @@ else:
         with cols[i % 3]:
             # Display Poster
             if poster_url:
-                st.image(poster_url, width=150)
+                st.image(poster_url, caption=row['movie'], width=150)
             elif tmdb_api_key:
-                # Only show this warning if we tried to search (i.e., API key exists)
-                st.warning("Poster not found on TMDb.")
+                # Only show this warning if we have an API key but failed the search
+                st.info(f"Poster not found for: {row['movie']}")
             
-            # Display Details (Simple)
+            # Display Details
             st.markdown(f"**{row['movie']}** ({row.get('year','')})")
             st.markdown(f"**Type:** {row['type']}")
-            st.markdown(f"**Language:** [{row.get('language','').upper()}]")
             st.markdown(f"**Added by:** {row['user']}")
             if row['note']:
                 st.markdown(f"*Notes:* {row['note']}")
@@ -141,17 +155,19 @@ else:
 # -------------------
 # TMDb Recommendations for last added movie
 # -------------------
-if tmdb_api_key and not df.empty:
+if tmdb_api_key and not df_sorted.empty:
     st.subheader("TMDb Recommendations 🎬")
     
-    # Use the most recent entry for recommendations
-    last_movie = df.iloc[0] 
+    # Use the most recent entry from the fully sorted DataFrame
+    last_movie = df_sorted.iloc[0] 
     
+    # Fetch TMDb data for the movie ID needed for recommendations
     tmdb_data = get_tmdb_movie(last_movie["movie"], last_movie.get("year"), last_movie.get("language"))
     
-    if tmdb_data:
+    if tmdb_data and tmdb_data.get("id"):
+        movie_id = tmdb_data["id"]
         st.markdown(f"Recommendations based on **{last_movie['movie']}**:")
-        recs = get_tmdb_recommendations(tmdb_data.get("id"), count=6)
+        recs = get_tmdb_recommendations(movie_id, count=6)
         
         if recs:
             rec_cols = st.columns(3)
@@ -164,4 +180,4 @@ if tmdb_api_key and not df.empty:
         else:
             st.info(f"No TMDb recommendations found for **{last_movie['movie']}**.")
     else:
-        st.info(f"Could not find **{last_movie['movie']}** on TMDb for recommendations.")
+        st.info(f"Could not find **{last_movie['movie']}** on TMDb. Recommendations unavailable.")
