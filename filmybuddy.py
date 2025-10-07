@@ -1,4 +1,4 @@
-# filmybuddy_final_working.py
+# filmybuddy_final_working_v2.py
 import streamlit as st
 import gspread
 import pandas as pd
@@ -8,6 +8,7 @@ import numpy as np
 import re # Import regex for advanced cleaning
 
 # --- IMPORTANT: Clear TMDb Cache at Start ---
+# Ensures a clean slate on initial load to prevent persistent errors
 if 'tmdb_data_cache_cleared' not in st.session_state:
     st.cache_data.clear()
     st.session_state['tmdb_data_cache_cleared'] = True
@@ -48,12 +49,16 @@ def load_data():
         # CORRECTED ORDER: Matches your sheet header: user movie type status year language note timestamp
         required_cols = ["user", "movie", "type", "status", "year", "language", "note", "timestamp"]
         
-        # Reindex to ensure DataFrame columns match the expected order, filling missing ones with NaN
+        # Reindex to ensure DataFrame columns match the expected order
         df = df.reindex(columns=required_cols, fill_value=np.nan)
 
         # Robust data cleaning: Clean up 'year' field to only contain digits
         if 'year' in df.columns:
             df['year'] = df['year'].astype(str).apply(lambda x: re.sub(r'\D', '', x)).replace('', np.nan)
+        
+        # Robust language cleaning: Ensure language is clean for TMDb search
+        if 'language' in df.columns:
+            df['language'] = df['language'].astype(str).str.strip().str.upper().replace('NAN', np.nan)
         
         if not df.empty and "timestamp" in df.columns:
             df = df.sort_values(by="timestamp", ascending=False).reset_index(drop=True)
@@ -61,12 +66,12 @@ def load_data():
         return df
     except Exception as e:
         st.error(f"Error loading Google Sheet data: {e}")
-        return pd.DataFrame(columns=["user", "movie", "type", "status", "year", "language", "note", "timestamp"])
+        return pd.DataFrame(columns=required_cols)
 
 df = load_data()
 
 # -------------------
-# Helper functions (TMDb Search with Strict Year Matching)
+# Helper functions (TMDb Search with Strict Year/Language Matching)
 # -------------------
 @st.cache_data(ttl=86400) # Cache TMDb results for 24 hours
 def get_tmdb_data(title, media_type, year=None, language=None):
@@ -76,12 +81,17 @@ def get_tmdb_data(title, media_type, year=None, language=None):
         
     title = str(title).strip()
     year = str(year).strip() if year else None
+    language_code = str(language).strip() if language else None
     
     params = {"api_key": tmdb_api_key, "query": title}
     
     # Apply year parameter only if it is a valid 4-digit number
     if year and len(year) == 4 and year.isdigit():
         params['year'] = year
+        
+    # Apply primary language parameter for better results
+    if language_code and len(language_code) in [2, 3]: # e.g., KO, EN
+        params['language'] = language_code.lower()
 
     try:
         resp = requests.get("https://api.themoviedb.org/3/search/multi", params=params).json()
@@ -90,7 +100,7 @@ def get_tmdb_data(title, media_type, year=None, language=None):
         
     results = resp.get("results", [])
     
-    # Priority: Find the result that matches ALL criteria
+    # --- Strict Matching Filter (Primary Logic) ---
     for r in results:
         
         is_movie = r.get("media_type") == "movie"
@@ -112,17 +122,16 @@ def get_tmdb_data(title, media_type, year=None, language=None):
             continue
             
         # 2. Strict Year Matching (If user provided a clean year)
-        # This is the line that guarantees the correct Memories of Murder (2003) is found
         if year and r_year != year:
             continue
             
-        # 3. Language Matching
-        if language:
-            lang_upper = language.upper().strip()
-            if r.get("original_language", "").upper() != lang_upper:
+        # 3. Strict Original Language Matching (CRUCIAL for same-name foreign films)
+        if language_code:
+            r_lang_upper = r.get("original_language", "").upper()
+            if r_lang_upper != language_code:
                 continue
 
-        # 4. Filter out items with no poster (fallback remains below)
+        # 4. Filter out items with no poster (useless for display)
         if not r.get("poster_path"):
             continue
 
@@ -192,8 +201,9 @@ with st.form("add_movie"):
         status = st.selectbox("Status", ["Completed", "Watching", "Plan to Watch", "Dropped"], key="form_status")
         
     with col3:
+        # Instruction for user to enter 2-digit language code
         year = st.text_input("Year (4 digits, e.g., 2023)", key="form_year")
-        language = st.text_input("Language (e.g., EN, KO)", key="form_lang")
+        language = st.text_input("Language (e.g., KO for Korean)", key="form_lang")
     
     note = st.text_area("Notes / Thoughts", key="form_note")
     submitted = st.form_submit_button("Add to List")
@@ -216,13 +226,15 @@ with st.form("add_movie"):
                     type_, 
                     status,
                     clean_year, # Use the cleaned year
-                    language.strip().upper(), 
+                    language.strip().upper(), # Store as uppercase 2-letter code (e.g., KO)
                     note.strip(), 
                     timestamp
                 ]
                 sheet.append_row(row_data)
                 st.success(f"Added **{movie.strip()}** by {user.strip()}! Refreshing list...")
                 load_data.clear()
+                # Also clear TMDb cache for the new entry, just in case
+                get_tmdb_data.clear() 
                 st.experimental_rerun()
             except Exception as e:
                 st.error(f"Error adding movie to sheet: {e}")
@@ -244,7 +256,16 @@ with col_filter:
 
 df_display = df.copy()
 
-# Apply filters and search... (logic remains correct)
+# Apply filters
+if type_filter != "All":
+    df_display = df_display[df_display["type"] == type_filter]
+if status_filter != "All":
+    df_display = df_display[df_display["status"] == status_filter]
+    
+# Apply search
+if search:
+    df_display = df_display[df_display["movie"].str.contains(search, case=False, na=False) |
+                            df_display["user"].str.contains(search, case=False, na=False)]
 
 if df_display.empty:
     st.info("No media items found matching your filters.")
@@ -272,7 +293,7 @@ else:
             elif tmdb_api_key and tmdb_data:
                 st.info(f"TMDb found **{row['movie']}** (ID: {tmdb_data.get('id')}), but poster is missing.")
             elif tmdb_api_key:
-                 st.warning(f"TMDb search failed for: **{row['movie']}** (Year: {row.get('year') or 'Missing/Invalid'}).")
+                 st.warning(f"TMDb search failed for: **{row['movie']}** (Year: {row.get('year') or 'N/A'}, Lang: {row.get('language') or 'N/A'}).")
             
             # Display Details
             st.markdown(f"**{row['movie']}** ({row.get('year') or 'N/A'})")
