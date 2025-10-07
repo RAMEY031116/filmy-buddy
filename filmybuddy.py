@@ -1,4 +1,4 @@
-# filmybuddy_simple_display.py
+# filmybuddy_fixed_poster_display.py
 import streamlit as st
 import gspread
 import pandas as pd
@@ -43,9 +43,10 @@ def get_tmdb_movie(title, year=None, language=None):
     if not tmdb_api_key:
         return None
     params = {"api_key": tmdb_api_key, "query": title}
+    
+    # --- FIX APPLIED HERE: Reverting parameter back to "year" ---
     if year:
-        # Note: TMDb search/movie only uses 'year' for release year
-        params["primary_release_year"] = year 
+        params["year"] = year 
     
     resp = requests.get("https://api.themoviedb.org/3/search/movie", params=params).json()
     results = resp.get("results", [])
@@ -85,7 +86,6 @@ with st.form("add_movie"):
             try:
                 sheet.append_row([user, movie, type_, note, year, language, timestamp])
                 st.success(f"Added {movie} by {user}! Refreshing list...")
-                # Force a full script re-run to load the new data and display the poster
                 st.experimental_rerun()
             except Exception as e:
                 st.error(f"Error adding movie: {e}")
@@ -93,7 +93,7 @@ with st.form("add_movie"):
             st.warning("Please fill your name and movie title.")
 
 # -------------------
-# Display all entered movies (No Dropdown/Expander)
+# Display all entered movies (Simple Display)
 # -------------------
 st.subheader("Your Movies/Shows")
 search = st.text_input("Search by title or user:")
@@ -117,20 +117,19 @@ else:
         # --- TMDb Data Fetching for Poster ---
         tmdb_data = get_tmdb_movie(row["movie"], row.get("year"), row.get("language"))
         
-        # Construct the poster URL if data is found
         poster_url = None
         if tmdb_data and tmdb_data.get("poster_path"):
-             # Display the poster for the entered movie
             poster_url = f"https://image.tmdb.org/t/p/w200{tmdb_data['poster_path']}"
         
         with cols[i % 3]:
             # Display Poster
             if poster_url:
                 st.image(poster_url, width=150)
-            else:
+            elif tmdb_api_key:
+                # Only show this warning if we tried to search (i.e., API key exists)
                 st.warning("Poster not found on TMDb.")
             
-            # Display Details (Simple, no expander)
+            # Display Details (Simple)
             st.markdown(f"**{row['movie']}** ({row.get('year','')})")
             st.markdown(f"**Type:** {row['type']}")
             st.markdown(f"**Language:** [{row.get('language','').upper()}]")
