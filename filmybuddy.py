@@ -1,4 +1,4 @@
-# filmybuddy_final_strict_tmdb.py
+# filmybuddy_final_strict_tmdb.py - UPDATED TO SHOW RATING
 import streamlit as st
 import gspread
 import pandas as pd
@@ -167,8 +167,13 @@ else:
     cols = st.columns(3)
     for i, (_, row) in enumerate(df_display.iterrows()):
         tmdb_data = get_tmdb_data(row["movie"], row["type"], row.get("year"), row.get("language"))
+        
         poster_url = f"https://image.tmdb.org/t/p/w200{tmdb_data['poster_path']}" if tmdb_data and tmdb_data.get("poster_path") else None
-        rating_text = f"⭐ {tmdb_data.get('vote_average', 'N/A')}/10" if tmdb_data and tmdb_data.get("vote_average") else "N/A"
+        
+        # --- RATING LOGIC ADDED HERE ---
+        rating_value = tmdb_data.get("vote_average") if tmdb_data else None
+        rating_text = f"⭐ **{rating_value:.1f}/10**" if rating_value else "N/A"
+        
         display_title = tmdb_data.get('normalized_title', row['movie']) if tmdb_data else row['movie']
         display_year = tmdb_data.get('normalized_year', row.get('year') or 'N/A') if tmdb_data else row.get('year','N/A')
 
@@ -176,6 +181,7 @@ else:
             if poster_url:
                 st.image(poster_url, width=150)
             st.markdown(f"**{display_title} ({display_year})**")
+            st.markdown(f"**Rating:** {rating_text}") # DISPLAY RATING
             st.markdown(f"**Type:** {row['type']} | **Status:** `{row.get('status','N/A')}`")
             st.markdown(f"**Added by:** {row['user']}")
             if row['note']:
