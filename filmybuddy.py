@@ -1,19 +1,19 @@
-# filmybuddy_final.py
+# filmybuddy_final_clean.py
 import streamlit as st
 import gspread
 import pandas as pd
 import requests
 from datetime import datetime
 import numpy as np
-import re # Import regex for advanced cleaning
+import re
 
-# --- IMPORTANT: Clear TMDb Cache at Start ---
+# --- IMPORTANT: Cache Management ---
+# Ensures a clean slate on initial load to prevent persistent errors
 if 'tmdb_data_cache_cleared' not in st.session_state:
     st.cache_data.clear()
     st.session_state['tmdb_data_cache_cleared'] = True
 
 # --- Configuration ---
-# Removed "Robust Edition 🛡️" as requested
 st.set_page_config(page_title="FilmyBuddy 🎬", layout="wide")
 st.title("FilmyBuddy 🎬")
 st.markdown("Track your media, get accurate TMDb posters/ratings, and recommendations!")
@@ -38,7 +38,7 @@ except Exception as e:
     st.stop()
 
 # -------------------
-# Load data from Google Sheet (Data Cache) - FIXED COLUMN ORDER
+# Load data from Google Sheet (Data Cache)
 # -------------------
 @st.cache_data(ttl=60) 
 def load_data():
@@ -46,17 +46,13 @@ def load_data():
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
         
-        # CORRECTED ORDER: Matches your sheet header: user movie type status year language note timestamp
         required_cols = ["user", "movie", "type", "status", "year", "language", "note", "timestamp"]
-        
-        # Reindex to ensure DataFrame columns match the expected order, filling missing ones with NaN
         df = df.reindex(columns=required_cols, fill_value=np.nan)
 
-        # Robust data cleaning: Clean up 'year' field to only contain digits
+        # Robust data cleaning
         if 'year' in df.columns:
             df['year'] = df['year'].astype(str).apply(lambda x: re.sub(r'\D', '', x)).replace('', np.nan)
         
-        # Robust language cleaning: Ensure language is clean for TMDb search
         if 'language' in df.columns:
             df['language'] = df['language'].astype(str).str.strip().str.upper().replace('NAN', np.nan)
         
@@ -85,11 +81,10 @@ def get_tmdb_data(title, media_type, year=None, language=None):
     
     params = {"api_key": tmdb_api_key, "query": title}
     
-    # Optional parameters for the API call to guide the search
     if year and len(year) == 4 and year.isdigit():
         params['year'] = year
         
-    if language_code and len(language_code) in [2, 3]: # e.g., KO, EN
+    if language_code and len(language_code) in [2, 3]: 
         params['language'] = language_code.lower()
 
     try:
@@ -107,10 +102,8 @@ def get_tmdb_data(title, media_type, year=None, language=None):
         
         if is_movie:
             r_year = str(r.get("release_date", "")[:4])
-            r_title = r.get("title", "")
         elif is_tv:
             r_year = str(r.get("first_air_date", "")[:4])
-            r_title = r.get("name", "")
         else:
             continue
             
@@ -135,13 +128,13 @@ def get_tmdb_data(title, media_type, year=None, language=None):
             continue
 
         # Found a perfect match! 
-        r['normalized_title'] = r_title
+        r['normalized_title'] = r.get("title") or r.get("name")
         r['normalized_year'] = r_year
         r['normalized_type'] = r['media_type']
         
         return r
         
-    # Fallback: If a perfect match fails, return the best result TMDb offered, but only if it has a poster
+    # Fallback: return the best result TMDb offered, but only if it has a poster
     if results and results[0].get("poster_path"):
          r = results[0]
          r['normalized_title'] = r.get("title") or r.get("name")
@@ -151,7 +144,6 @@ def get_tmdb_data(title, media_type, year=None, language=None):
 
     return None
 
-# Recommendation function remains the same
 def get_tmdb_recommendations(tmdb_id, tmdb_media_type, count=6):
     """Fetches recommendations from TMDb for a given item ID and type."""
     if not tmdb_api_key or not tmdb_id or tmdb_media_type not in ['movie', 'tv']:
@@ -164,24 +156,6 @@ def get_tmdb_recommendations(tmdb_id, tmdb_media_type, count=6):
         return []
         
     return resp.get("results", [])[:count]
-
-
-# -------------------
-# Cache Clearing Utility
-# -------------------
-def clear_caches():
-    """Clears all cached functions for a clean restart."""
-    load_data.clear()
-    get_tmdb_data.clear()
-    st.session_state.pop('tmdb_data_cache_cleared', None)
-    st.rerun() 
-
-# --- Layout for Cache Control ---
-st.sidebar.markdown("---")
-st.sidebar.markdown("### Troubleshooting")
-if st.sidebar.button("Invalidate TMDb Cache and Reload ♻️"):
-    st.info("Clearing caches. Please wait for the app to reload...")
-    clear_caches()
 
 
 # -------------------
@@ -207,7 +181,6 @@ with st.form("add_movie"):
     submitted = st.form_submit_button("Add to List")
 
     if submitted:
-        # Validate that the year is 4 digits if entered
         clean_year = re.sub(r'\D', '', year.strip())
         
         if not (user and movie):
@@ -217,7 +190,6 @@ with st.form("add_movie"):
         else:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             try:
-                # ORDER: user, movie, type, status, year, language, note, timestamp
                 row_data = [
                     user.strip(), 
                     movie.strip(), 
@@ -253,7 +225,14 @@ with col_filter:
 
 df_display = df.copy()
 
-# Apply filters and search... (logic remains correct)
+# Apply filters and search... 
+if type_filter != "All":
+    df_display = df_display[df_display["type"] == type_filter]
+if status_filter != "All":
+    df_display = df_display[df_display["status"] == status_filter]
+if search:
+    df_display = df_display[df_display["movie"].str.contains(search, case=False, na=False) |
+                            df_display["user"].str.contains(search, case=False, na=False)]
 
 if df_display.empty:
     st.info("No media items found matching your filters.")
@@ -266,6 +245,8 @@ else:
         
         poster_url = None
         rating_text = "N/A"
+        display_title = row['movie']
+        display_year = row.get('year') or 'N/A'
         
         with cols[i % 3]:
             
@@ -276,16 +257,13 @@ else:
                 
                 rating = tmdb_data.get("vote_average")
                 if rating and rating > 0:
-                    # Use TMDb's title and year if a match was found for better display quality
+                    # Use TMDb's info for cleaner display if a match was found
                     display_title = tmdb_data.get('normalized_title', row['movie'])
                     display_year = tmdb_data.get('normalized_year', row.get('year') or 'N/A')
                     rating_text = f"⭐ {rating:.1f}/10"
                     
-            else:
-                display_title = row['movie']
-                display_year = row.get('year') or 'N/A'
-                if tmdb_api_key:
-                     st.warning(f"TMDb search failed for: **{row['movie']}** (Year: {row.get('year') or 'N/A'}, Lang: {row.get('language') or 'N/A'}).")
+            elif tmdb_api_key:
+                 st.warning(f"TMDb search failed for: **{row['movie']}** (Year: {row.get('year') or 'N/A'}, Lang: {row.get('language') or 'N/A'}).")
             
             # Display Details
             st.markdown(f"**{display_title}** ({display_year})")
@@ -334,10 +312,3 @@ if tmdb_api_key and not df.empty:
             st.info(f"No TMDb recommendations found for **{last_movie['movie']}**.")
     else:
         st.info(f"Could not find **{last_movie['movie']}** on TMDb. Recommendations unavailable.")
-
-# -------------------
-# Data Verification (FOR DEBUGGING)
-# -------------------
-with st.expander("🔍 Debug: View Raw Data for Troubleshooting"):
-    st.markdown("**CRITICAL CHECK:** Ensure the `year` and `language` (e.g., `2003` and `KO` for Memories of Murder) columns for your problematic entries are correct here. This is the data the script is using.")
-    st.dataframe(df.head(10))
