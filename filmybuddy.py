@@ -8,12 +8,12 @@ from datetime import datetime
 
 st.set_page_config(page_title="FilmyBuddy 🎬", layout="wide")
 st.title("FilmyBuddy 🎬")
-st.markdown("Track your movies/shows, see posters, and get recommendations!")
+st.markdown("Track your movies/shows and get recommendations with posters!")
 
 # -------------------
 # TMDb API key
 # -------------------
-tmdb_api_key = st.secrets.get("tmdb_api_key")
+tmdb_api_key = st.secrets.get("tmdb_api_key", None)
 if not tmdb_api_key:
     st.warning("TMDb API key not found in secrets. Only internal recommendations will work.")
 
@@ -32,35 +32,35 @@ except Exception as e:
     st.stop()
 
 # -------------------
-# Load data
+# Load data from Google Sheet
 # -------------------
 try:
-    data = sheet.get_all_records()
+    data = sheet.get_all_records(expected_headers=["user","movie","type","note","timestamp"])
     df = pd.DataFrame(data)
 except Exception as e:
     st.error(f"Error loading Google Sheet: {e}")
-    df = pd.DataFrame(columns=["user", "movie", "type", "note", "year", "language", "timestamp"])
+    df = pd.DataFrame(columns=["user", "movie", "type", "note", "timestamp"])
 
 # -------------------
-# Add a new movie/show
+# Form to add a new movie/show
 # -------------------
-st.subheader("Add a New Movie/Show")
+st.subheader("Add a new movie/show")
 with st.form("add_movie"):
     user = st.text_input("Your Name")
     movie = st.text_input("Movie/Show Title")
     type_ = st.selectbox("Type", ["Movie", "Show", "Documentary", "Anime", "Other"])
     note = st.text_area("Notes / Thoughts")
-    year = st.number_input("Release Year (optional)", min_value=1800, max_value=datetime.now().year, step=1)
-    language = st.text_input("Original Language (optional, e.g., en, fr)")
     submitted = st.form_submit_button("Add")
-    
+
     if submitted:
         if user and movie:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             try:
-                sheet.append_row([user, movie, type_, note, year if year else "", language, timestamp])
+                sheet.append_row([user, movie, type_, note, timestamp])
                 st.success(f"Added {movie} by {user}!")
-                data = sheet.get_all_records()
+
+                # Refresh dataframe
+                data = sheet.get_all_records(expected_headers=["user","movie","type","note","timestamp"])
                 df = pd.DataFrame(data)
             except Exception as e:
                 st.error(f"Error adding movie: {e}")
@@ -68,47 +68,35 @@ with st.form("add_movie"):
             st.warning("Please fill at least your name and the movie title.")
 
 # -------------------
-# TMDb Poster function
+# Display current movies/shows
 # -------------------
-def get_tmdb_poster(title, api_key, year=None, language=None):
-    if not api_key:
-        return None
+def fetch_tmdb_poster(title, api_key):
+    """Return the TMDb poster URL for a movie."""
     search_url = "https://api.themoviedb.org/3/search/movie"
     params = {"api_key": api_key, "query": title}
-    if year:
-        params["year"] = year
-    if language:
-        params["language"] = language
     resp = requests.get(search_url, params=params).json()
-    results = resp.get("results")
-    if results:
-        poster_path = results[0].get("poster_path")
+    if resp.get("results"):
+        poster_path = resp["results"][0].get("poster_path")
         if poster_path:
-            return f"https://image.tmdb.org/t/p/w200{poster_path}"
+            return f"https://image.tmdb.org/t/p/w200{poster_path}"  # smaller width
     return None
 
-# -------------------
-# Display movies in grid with posters
-# -------------------
 if not df.empty:
     st.subheader("Your Movies/Shows")
-    search = st.text_input("Search by title:")
+    
+    search = st.text_input("Search by title or user:")
     if search:
-        df_filtered = df[df['movie'].str.contains(search, case=False, na=False)]
+        df_filtered = df[df['movie'].str.contains(search, case=False, na=False) |
+                         df['user'].str.contains(search, case=False, na=False)]
     else:
         df_filtered = df
 
-    cols = st.columns(3)
-    for i, row in df_filtered.iterrows():
-        poster = get_tmdb_poster(row["movie"], tmdb_api_key, year=row.get("year"), language=row.get("language"))
-        with cols[i % 3]:
-            st.write(f"**{row['movie']} ({row.get('year','')})**")
-            if poster:
-                st.image(poster, use_container_width=True)
-            else:
-                st.write("Poster not found")
-            if row.get("note"):
-                st.caption(row["note"])
+    for _, row in df_filtered.iterrows():
+        col1, col2 = st.columns([1,4])
+        poster = fetch_tmdb_poster(row['movie'], tmdb_api_key) if tmdb_api_key else None
+        if poster:
+            col1.image(poster, width=100)
+        col2.markdown(f"**{row['movie']}** ({row['type']})  \nAdded by: {row['user']}  \nNotes: {row['note']}  \nTimestamp: {row['timestamp']}")
 
     # -------------------
     # Internal Recommendations
@@ -118,11 +106,15 @@ if not df.empty:
         last_type = df.iloc[-1]['type']
         same_type_movies = df[df['type'] == last_type]['movie'].tolist()
         all_movies = df['movie'].tolist()
-        recommendations = random.sample([m for m in all_movies if m not in same_type_movies],
+        recommendations = random.sample([m for m in all_movies if m not in same_type_movies], 
                                         min(3, max(len(all_movies)-len(same_type_movies), 0)))
         if recommendations:
             for rec in recommendations:
-                st.write(f"• {rec}")
+                poster = fetch_tmdb_poster(rec, tmdb_api_key) if tmdb_api_key else None
+                cols = st.columns([1,4])
+                if poster:
+                    cols[0].image(poster, width=100)
+                cols[1].write(rec)
         else:
             st.info("No new internal recommendations available yet.")
     else:
@@ -131,34 +123,24 @@ if not df.empty:
     # -------------------
     # TMDb Recommendations
     # -------------------
-    if tmdb_api_key and not df_filtered.empty:
+    if tmdb_api_key:
         st.subheader("TMDb Recommendations 🎬")
         last_movie = df.iloc[-1]['movie']
-        last_year = df.iloc[-1].get("year")
-        last_lang = df.iloc[-1].get("language")
-
-        def get_tmdb_recommendations(title, api_key, year=None, language=None, count=3):
-            search_url = "https://api.themoviedb.org/3/search/movie"
-            params = {"api_key": api_key, "query": title}
-            if year:
-                params["year"] = year
-            if language:
-                params["language"] = language
-            resp = requests.get(search_url, params=params).json()
-            if resp.get("results"):
-                movie_id = resp["results"][0]["id"]
-                rec_url = f"https://api.themoviedb.org/3/movie/{movie_id}/recommendations"
-                rec_resp = requests.get(rec_url, params={"api_key": api_key}).json()
-                recs = [{"title": m["title"], "poster": f"https://image.tmdb.org/t/p/w200{m['poster_path']}"}
-                        for m in rec_resp.get("results", []) if m.get("poster_path")]
-                return recs[:count]
-            return []
-
-        tmdb_recs = get_tmdb_recommendations(last_movie, tmdb_api_key, last_year, last_lang)
-        rec_cols = st.columns(3)
-        for i, rec in enumerate(tmdb_recs):
-            with rec_cols[i % 3]:
-                st.write(f"**{rec['title']}**")
-                st.image(rec['poster'], use_container_width=True)
+        search_url = "https://api.themoviedb.org/3/search/movie"
+        params = {"api_key": tmdb_api_key, "query": last_movie}
+        resp = requests.get(search_url, params=params).json()
+        if resp.get("results"):
+            movie_id = resp["results"][0]["id"]
+            rec_url = f"https://api.themoviedb.org/3/movie/{movie_id}/recommendations"
+            rec_resp = requests.get(rec_url, params={"api_key": tmdb_api_key}).json()
+            recs = rec_resp.get("results", [])[:3]
+            for r in recs:
+                poster = f"https://image.tmdb.org/t/p/w200{r['poster_path']}" if r.get('poster_path') else None
+                cols = st.columns([1,4])
+                if poster:
+                    cols[0].image(poster, width=100)
+                cols[1].markdown(f"**{r['title']}** ({r.get('release_date','')[:4]})")
+        else:
+            st.info("No TMDb recommendations found for the last movie.")
 else:
     st.info("No data found in the Google Sheet. Check your sheet ID and worksheet name.")
