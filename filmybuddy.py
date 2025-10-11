@@ -18,7 +18,7 @@ st.title("FilmyBuddy 🎬")
 st.markdown("Recommend your recent watched")
 
 # --- TMDb API key ---
-tmdb_api_key = st.secrets("tmdb_api_key")
+tmdb_api_key = st.secrets.get("tmdb_api_key")
 if not tmdb_api_key:
     st.warning("TMDb API key not found. TMDb features will not work.")
 
