@@ -15,10 +15,10 @@ if 'tmdb_data_cache_cleared' not in st.session_state:
 # --- Configuration ---
 st.set_page_config(page_title="FilmyBuddy 🎬", layout="wide")
 st.title("FilmyBuddy 🎬")
-st.markdown("Track your media with correct TMDb posters, ratings, and recommendations!")
+st.markdown("Recommend your recent watched")
 
 # --- TMDb API key ---
-tmdb_api_key = st.secrets.get("tmdb_api_key")
+tmdb_api_key = st.secrets("tmdb_api_key")
 if not tmdb_api_key:
     st.warning("TMDb API key not found. TMDb features will not work.")
 
