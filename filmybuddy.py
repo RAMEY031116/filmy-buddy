@@ -14,7 +14,7 @@ if 'tmdb_data_cache_cleared' not in st.session_state:
 
 # --- Configuration ---
 st.set_page_config(page_title="ReelBuds 🎬", layout="wide")
-st.title("FilmyBuddy 🎬")
+st.title("ReelBuds 🎬")
 st.markdown("Recommend your recent watched")
 
 # --- TMDb API key ---
@@ -211,3 +211,11 @@ if tmdb_api_key and not df.empty:
             st.info(f"No TMDb recommendations found for **{last_movie['movie']}**.")
     else:
         st.info(f"Could not find **{last_movie['movie']}** on TMDb. Recommendations unavailable.")
+
+
+# Footer
+st.markdown("""
+<hr style="border:1px solid #ccc">
+<div style='text-align: center; color: gray; font-size: 14px;'>
+    Created by <a href='https://bipzilla.com' target='_blankunsafe_allow_html=True)
+
