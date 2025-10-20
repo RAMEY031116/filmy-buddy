@@ -13,7 +13,7 @@ if 'tmdb_data_cache_cleared' not in st.session_state:
     st.session_state['tmdb_data_cache_cleared'] = True
 
 # --- Configuration ---
-st.set_page_config(page_title="FilmyBuddy 🎬", layout="wide")
+st.set_page_config(page_title="ReelBuds 🎬", layout="wide")
 st.title("FilmyBuddy 🎬")
 st.markdown("Recommend your recent watched")
 
