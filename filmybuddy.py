@@ -214,8 +214,5 @@ if tmdb_api_key and not df.empty:
 
 
 # Footer
-st.markdown("""
-<hr style="border:1px solid #ccc">
-<div style='text-align: center; color: gray; font-size: 14px;'>
-    Created by <a href='https://bipzilla.com' target='_blankunsafe_allow_html=True)
+st.write ("created by bipzilla")
 
